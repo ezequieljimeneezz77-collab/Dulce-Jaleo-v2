@@ -137,6 +137,52 @@
             transition: var(--transition);
         }
 
+        /* ===== PREMIUM TOAST NOTIFICATIONS ===== */
+        .toast-container {
+            position: fixed;
+            bottom: 110px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 3000;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 90%;
+            max-width: 360px;
+            pointer-events: none;
+        }
+
+        .toast {
+            background: rgba(255, 255, 10, 0.95);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            padding: 16px 20px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #000;
+            font-size: 14px;
+            font-weight: 600;
+            animation: toastIn 0.5s cubic-bezier(0.17, 0.89, 0.32, 1.28);
+            pointer-events: auto;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .toast.success { background: #E7F6EC; color: #0E703C; border-color: #A6E2BD; }
+        .toast.error { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+        .toast.info { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
+
+        @keyframes toastIn {
+            from { transform: translateY(40px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        @keyframes toastOut {
+            to { transform: translateY(-20px) scale(0.9); opacity: 0; }
+        }
+
         .main {
             padding-top: calc(85px + env(safe-area-inset-top, 0px));
             padding-bottom: 120px;
@@ -3095,11 +3141,35 @@
         const previewImg = document.getElementById('previewImg');
         const placeholder = document.getElementById('scannerPlaceholder');
         const sendBtn = document.getElementById('sendBtn');
+        // resultArea se busca dinámicamente
         const clearBtn = document.getElementById('clearBtn');
-        // resultArea se busca dinámicamente (puede no existir al cargar)
+        
+        function showToast(msg, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            let icon = 'info';
+            if(type === 'success') icon = 'check-circle';
+            if(type === 'error') icon = 'alert-circle';
+            
+            toast.innerHTML = `
+                <i data-lucide="${icon}" style="width:18px;height:18px;"></i>
+                <span>${msg}</span>
+            `;
+            
+            container.appendChild(toast);
+            if(window.lucide) lucide.createIcons();
+            
+            // Auto eliminar tras 4s
+            setTimeout(() => {
+                toast.style.animation = 'toastOut 0.4s forwards';
+                setTimeout(() => toast.remove(), 400);
+            }, 4000);
+        }
 
-        if (btnCamera) btnCamera.addEventListener('click', e => { e.stopPropagation(); fileInputCamera.click(); });
-        if (btnGallery) btnGallery.addEventListener('click', e => { e.stopPropagation(); fileInputGallery.click(); });
+        if (btnCamera) btnCamera.addEventListener('click', e => { e.stopPropagation(); hideResult(); fileInputCamera.click(); });
+        if (btnGallery) btnGallery.addEventListener('click', e => { e.stopPropagation(); hideResult(); fileInputGallery.click(); });
         if (scannerArea) scannerArea.addEventListener('click', () => { if (!selectedFile && fileInputGallery) fileInputGallery.click(); });
 
         // Drag & Drop
@@ -3141,7 +3211,7 @@
 
         async function processSelectedFile(file, isCamera) {
             if (file.type && !file.type.startsWith('image/')) {
-                alert('Por favor selecciona una imagen');
+                showToast('Por favor selecciona una imagen válida', 'error');
                 return;
             }
 
@@ -3221,6 +3291,8 @@
 
         if (clearBtn) clearBtn.addEventListener('click', e => { e.stopPropagation(); resetScanner(); });
 
+        if (clearBtn) clearBtn.addEventListener('click', e => { e.stopPropagation(); hideResult(); resetScanner(); });
+
         function resetScanner() {
             selectedFile = null;
             previewImg.style.display = 'none';
@@ -3228,10 +3300,14 @@
             placeholder.style.display = 'block';
             scannerArea.classList.remove('has-image');
             sendBtn.disabled = true;
-            clearBtn.style.display = 'none';
+            if (clearBtn) clearBtn.style.display = 'none';
             fileInputCamera.value = '';
             fileInputGallery.value = '';
-            const ra = document.getElementById('resultArea'); if (ra) ra.style.display = 'none';
+        }
+
+        function hideResult() {
+            const ra = document.getElementById('resultArea');
+            if (ra) ra.style.display = 'none';
         }
 
         if (sendBtn) sendBtn.addEventListener('click', sendImage);
@@ -3288,7 +3364,8 @@
                 // Intentar parsear JSON, pero no explotar si está vacío
                 if (!responseText || responseText.trim().length === 0) {
                     clearInterval(textInterval);
-                    alert('✅ Documento procesado correctamente.\n\nNota: El servidor no devolvió datos de detalle.');
+                    showToast('Documento enviado correctamente', 'success');
+                    showResult({}); // Mostrar área vacía pero exitosa
                     overlay.classList.add('hidden');
                     return;
                 }
@@ -3299,20 +3376,22 @@
                 } catch (parseErr) {
                     clearInterval(textInterval);
                     console.warn('⚠️ Respuesta no-JSON:', responseText.substring(0, 300));
-                    alert('✅ Documento enviado.\n\nRespuesta del servidor:\n' + responseText.substring(0, 250));
+                    showToast('Enviado (formato no-JSON)', 'info');
+                    showResult({}); // Fallback
                     overlay.classList.add('hidden');
                     return;
                 }
 
                 clearInterval(textInterval);
+                showToast('Factura analizada con éxito', 'success');
                 showResult(result);
             } catch (err) {
                 clearInterval(textInterval);
                 clearTimeout(timeoutId);
                 if (err.name === 'AbortError') {
-                    alert('⏱️ TIMEOUT: La conexión tardó más de 90 segundos.\n\nAsegúrate de tener conexión a internet estable.');
+                    showToast('Tiempo agotado (conexión lenta)', 'error');
                 } else {
-                    alert('❌ ERROR:\n\n' + err.message);
+                    showToast(err.message, 'error');
                 }
             } finally {
                 overlay.classList.add('hidden');
@@ -3340,13 +3419,18 @@
             document.getElementById('resultCategoria').textContent = 'Categoría: ' + rawCategoria;
 
             const grid = document.getElementById('resultGrid');
+            if (Object.keys(fields).length === 0) {
+                grid.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding: 20px; color: var(--text-muted); font-size: 13px;">
+                    Análisis completado. Pulsa "Ver Facturas" para comprobar el resultado final en el listado.
+                </div>`;
+                return;
+            }
+
             const items = [
                 { label: 'Proveedor', value: fields['PROVEDOR/ TITULO'] || fields['proveedor'] || '-' },
                 { label: 'Total', value: (fields['TOTAL'] || fields['total'] || '0') + ' €', cls: 'amount' },
                 { label: 'Fecha', value: fields['Fecha'] || fields['fecha'] || '-' },
-                { label: 'Nº Doc', value: fields['NUMERO DE DOC'] || fields['numero_doc'] || '-' },
-                { label: 'Base Imponible', value: (fields['BASE IMPONIBLE'] || fields['base_imponible'] || '0') + ' €' },
-                { label: 'IVA', value: (fields['IVA'] || fields['iva'] || '0') + ' €' }
+                { label: 'Nº Doc', value: fields['NUMERO DE DOC'] || fields['numero_doc'] || '-' }
             ];
 
             grid.innerHTML = items.map(i => `
@@ -3836,7 +3920,7 @@
             if (window.contactSelected && window.contactSelected.telefono) {
                 window.location.href = 'tel:' + window.contactSelected.telefono;
             } else {
-                alert('Este contacto no tiene teléfono guardado.');
+                showToast('Este contacto no tiene teléfono guardado.', 'error');
             }
         };
 
@@ -3844,7 +3928,7 @@
             if (window.contactSelected && window.contactSelected.telefono) {
                 window.location.href = 'https://wa.me/' + window.contactSelected.telefono.replace(/\s+/g, '');
             } else {
-                alert('Este contacto no tiene teléfono guardado.');
+                showToast('Este contacto no tiene teléfono guardado.', 'error');
             }
         };
 
@@ -3905,7 +3989,7 @@
         }
 
         window.ejecutarNota = function () {
-            alert('En desarrollo: ' + (window.contactSelected && window.contactSelected.email ? window.contactSelected.email : 'Sin nota.'));
+            showToast('Función de notas en desarrollo', 'info');
         };
 
         // ===== THEME TOGGLE LOGIC (INVERSIÓN: CLARO = DEFAULT) =====
@@ -3959,5 +4043,7 @@
             }, 500);
         });
     </script>
+    <!-- CONTAINER PARA NOTIFICACIONES PREMIUM (TOASTS) -->
+    <div id="toastContainer" class="toast-container"></div>
 </body>
 </html>
