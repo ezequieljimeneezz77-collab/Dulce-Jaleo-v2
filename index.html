@@ -699,54 +699,113 @@
             color: var(--rose);
         }
 
-        /* ===== PROCESSING OVERLAY ===== */
+        /* ===== PREMIUM PROCESSING OVERLAY (GLASS VERSION) ===== */
         .processing-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(250, 246, 240, 0.88);
+            background: rgba(255, 255, 255, 0.4);
+            backdrop-filter: blur(25px) saturate(180%);
+            -webkit-backdrop-filter: blur(25px) saturate(180%);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            z-index: 999;
-            backdrop-filter: blur(12px);
+            z-index: 2000;
+            transition: all 0.5s ease;
+        }
+
+        body.dark-theme .processing-overlay {
+            background: rgba(0, 0, 0, 0.6);
         }
 
         .processing-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
             display: none;
         }
 
-        .spinner-track {
-            width: 56px;
-            height: 56px;
-            border: 3px solid var(--border);
-            border-top-color: var(--rose);
-            border-radius: 50%;
-            animation: spin 0.9s linear infinite;
+        .premium-loader-card {
+            background: var(--bg-card);
+            padding: 32px;
+            border-radius: 32px;
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 85%;
+            max-width: 320px;
+            animation: cardScale 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
 
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
+        @keyframes cardScale {
+            from { transform: scale(0.9); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
         }
 
-        .processing-bread {
-            font-size: 36px;
-            margin-bottom: 16px;
-            animation: float 2s ease-in-out infinite;
+        .scanning-pulse {
+            width: 64px;
+            height: 64px;
+            background: rgba(212, 175, 55, 0.1);
+            border: 1px solid var(--gold);
+            border-radius: 20px;
+            margin: 0 auto 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
         }
 
-        @keyframes float {
+        .scanning-pulse::after {
+            content: '';
+            position: absolute;
+            top: -100%;
+            left: 0;
+            right: 0;
+            height: 40%;
+            background: linear-gradient(to bottom, transparent, var(--gold), transparent);
+            opacity: 0.4;
+            animation: scanLine 1.5s linear infinite;
+        }
 
-            0%,
-            100% {
-                transform: translateY(0);
-            }
+        @keyframes scanLine {
+            to { top: 100%; }
+        }
 
-            50% {
-                transform: translateY(-8px);
-            }
+        .processing-text {
+            font-family: 'Outfit', sans-serif;
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .processing-sub {
+            font-size: 12px;
+            color: var(--text-muted);
+            letter-spacing: 0.2px;
+        }
+
+        .l-progress-bar {
+            width: 100%;
+            height: 4px;
+            background: var(--warm-100);
+            border-radius: 2px;
+            margin-top: 24px;
+            overflow: hidden;
+        }
+
+        .l-progress-fill {
+            height: 100%;
+            width: 30%;
+            background: var(--gold);
+            border-radius: 2px;
+            animation: progressPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes progressPulse {
+            0% { width: 10%; margin-left: -10%; }
+            50% { width: 60%; margin-left: 20%; }
+            100% { width: 10%; margin-left: 110%; }
         }
 
         .processing-text {
@@ -2262,6 +2321,24 @@
                 <button class="btn btn-primary" id="sendBtn" disabled>🚀 Procesar y Guardar</button>
                 <button class="btn btn-secondary" onclick="hideGlobalScanner()" style="margin-top: 12px;">Volver a Inicio</button>
             </div>
+
+            <!-- [RESTAURADO] Área de Resultados del Escáner -->
+            <div id="resultArea" style="display:none; margin: 24px var(--gutter);">
+                <div class="result-card glass-panel" style="border: 1px solid var(--border); border-radius: 28px; padding: 24px;">
+                    <div class="result-header">
+                        <div class="result-icon-wrap" style="background: rgba(212, 175, 55, 0.1); color: var(--gold);">
+                            <i data-lucide="check-circle"></i>
+                        </div>
+                        <div>
+                            <div class="result-title">Escaneo Exitoso</div>
+                            <div class="result-subtitle" id="resultCategoria">Categoría detectada</div>
+                        </div>
+                    </div>
+                    <div class="result-grid" id="resultGrid">
+                        <!-- Items inyectados por JS -->
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- ===== TAB: PRODUCTOS (Base: Facturas) ===== -->
@@ -2565,11 +2642,18 @@
     </div>
 
     <!-- PROCESSING OVERLAY -->
+    <!-- MODERN PREMIUM PROCESSING OVERLAY -->
     <div class="processing-overlay hidden" id="processingOverlay">
-        <div class="processing-bread">🍞</div>
-        <div class="spinner-track"></div>
-        <div class="processing-text">Procesando documento...</div>
-        <div class="processing-sub">La IA está analizando tu factura</div>
+        <div class="premium-loader-card">
+            <div class="scanning-pulse">
+                <i data-lucide="scan" style="width: 28px; height: 28px; color: var(--gold);"></i>
+            </div>
+            <div class="processing-text" id="procTextMain">Invocando a la IA...</div>
+            <div class="processing-sub" id="procTextSub">Leyendo estructura del ticket</div>
+            <div class="l-progress-bar">
+                <div class="l-progress-fill"></div>
+            </div>
+        </div>
     </div>
 
     <!-- ZONA BAJA (DOCK FLOATING PILL - ESTILO APPLE) -->
@@ -3114,7 +3198,7 @@
 
         async function sendImage() {
             if (!selectedFile) return;
-            config = loadConfig();
+            const config = loadConfig();
             if (!config.webhookUrl) {
                 alert('⚠️ Configura la URL del Webhook primero en Ajustes ⚙️');
                 return;
@@ -3122,6 +3206,20 @@
 
             const overlay = document.getElementById('processingOverlay');
             overlay.classList.remove('hidden');
+            
+            // Textos dinámicos para mejora de percepción de velocidad
+            const steps = [
+                { main: "Leyendo documento...", sub: "Identificando áreas clave" },
+                { main: "Invocando a la IA...", sub: "Extrayendo importes e IVA" },
+                { main: "Validando datos...", sub: "Cruzando con proveedores" },
+                { main: "Sincronizando...", sub: "Guardando en Dulce Jaleo" }
+            ];
+            let stepIdx = 0;
+            const textInterval = setInterval(() => {
+                stepIdx = (stepIdx + 1) % steps.length;
+                document.getElementById('procTextMain').textContent = steps[stepIdx].main;
+                document.getElementById('procTextSub').textContent = steps[stepIdx].sub;
+            }, 2500);
 
             try {
                 const formData = new FormData();
@@ -3134,16 +3232,18 @@
 
                 if (!response.ok) {
                     const errorMsg = await response.text();
-                    throw new Error(`Servidor n8n (HTTP ${response.status}):\n${errorMsg.substring(0, 250)}`);
+                    throw new Error(`Servidor n8n (HTTP ${response.status})`);
                 }
 
                 const result = await response.json();
+                clearInterval(textInterval);
                 showResult(result);
             } catch (err) {
-                // Paso C: try/catch con alert() con el err.message exacto
+                clearInterval(textInterval);
                 alert('❌ ERROR FATAL O RECHAZO DEL SERVIDOR:\n\n' + err.message);
             } finally {
                 overlay.classList.add('hidden');
+                if (typeof lucide !== 'undefined') lucide.createIcons();
             }
         }
 
