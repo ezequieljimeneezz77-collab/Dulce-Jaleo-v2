@@ -26,8 +26,8 @@
     <link rel="apple-touch-icon" sizes="180x180" href="icon-512.png?v=3">
 
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <!-- Lucide Icons (Carga Temprana) -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
     <style>
         :root {
             /* Paleta Qantas/Apple High-End (Light Mode Default) */
@@ -3055,61 +3055,45 @@
         }
 
 
-        function processSelectedFile(file, isCamera) {
+        async function processSelectedFile(file, isCamera) {
             if (file.type && !file.type.startsWith('image/')) {
                 alert('Por favor selecciona una imagen');
                 return;
             }
 
-            // Paso A: Si es de galería, usamos el archivo original que funcionaba bien
-            if (!isCamera) {
-                selectedFile = file;
+            // Cambiar texto de procesamiento en el botón mientras comprime (feedback)
+            const originalBtnText = sendBtn.innerHTML;
+            sendBtn.innerHTML = '⌛ Comprimiendo...';
+            sendBtn.disabled = true;
+
+            const options = {
+                maxSizeMB: 0.8,            // Máximo 800KB
+                maxWidthOrHeight: 1280,   // Máximo 1280px
+                useWebWorker: true,
+                initialQuality: 0.85
+            };
+
+            try {
+                console.log(`Original size: ${file.size / 1024 / 1024} MB`);
+                const compressedFile = await imageCompression(file, options);
+                console.log(`Compressed size: ${compressedFile.size / 1024 / 1024} MB`);
+                
+                selectedFile = compressedFile;
+                
+                // Mostrar preview
+                const reader = new FileReader();
+                reader.onload = ev => showPreviewDirectly(ev.target.result);
+                reader.readAsDataURL(compressedFile);
+            } catch (error) {
+                console.error("Error en compresión:", error);
+                selectedFile = file; // Fallback
                 const reader = new FileReader();
                 reader.onload = ev => showPreviewDirectly(ev.target.result);
                 reader.readAsDataURL(file);
-                return;
+            } finally {
+                sendBtn.innerHTML = originalBtnText;
+                sendBtn.disabled = false;
             }
-
-            // Paso B: Si es de la Cámara, procesamos DataURL y lo convertimos a File explícitamente
-            // Aceptar imagen aunque sea HEIC en iOS (el type puede ser vacío)
-            if (file.type && !file.type.startsWith('image/')) {
-                alert('Por favor selecciona una imagen');
-                return;
-            }
-            const reader = new FileReader();
-            reader.onerror = () => alert('No se pudo leer el archivo de la cámara.');
-            reader.onload = ev => {
-                const img = new Image();
-                img.onerror = () => {
-                    selectedFile = file; // Fallback extremo
-                    showPreviewDirectly(ev.target.result);
-                };
-                img.onload = () => {
-                    const MAX_W = 1200;
-                    let w = img.width, h = img.height;
-                    if (w > MAX_W) { h = Math.round(h * MAX_W / w); w = MAX_W; }
-                    const canvas = document.createElement('canvas');
-                    canvas.width = w; canvas.height = h;
-                    const ctx = canvas.getContext('2d');
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, w, h);
-                    ctx.drawImage(img, 0, 0, w, h);
-
-                    try {
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                        selectedFile = dataURLtoFile(dataUrl, 'foto_camara.jpg');
-                        showPreviewDirectly(dataUrl);
-                    } catch (e) {
-                        alert('Error procesando imagen en memoria: ' + e.message);
-                        selectedFile = file;
-                        showPreviewDirectly(ev.target.result);
-                    }
-
-                    canvas.width = 0; canvas.height = 0;
-                };
-                img.src = ev.target.result;
-            };
-            reader.readAsDataURL(file);
         }
 
         if (clearBtn) clearBtn.addEventListener('click', e => { e.stopPropagation(); resetScanner(); });
