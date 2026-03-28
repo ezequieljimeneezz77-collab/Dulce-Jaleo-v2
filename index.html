@@ -3917,12 +3917,19 @@
         let config = loadConfig();
         document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
 
-        // Pre-fetch de datos al arrancar: cuando el usuario llegue a Facturas, ya estarán listos
-        setTimeout(() => {
-            if (!globalStats.loaded) {
-                fetchGlobalData().catch(() => {});
-            }
-        }, 800);
+        // Pre-fetch inmediato al arrancar (sin bloquear el hilo principal)
+        // Cuando termine, si el usuario ya está en Facturas → renderiza sin espera
+        if (!globalStats.loaded) {
+            fetchGlobalData()
+                .then(() => {
+                    const facturasTab = document.getElementById('tab-facturas');
+                    if (facturasTab && facturasTab.classList.contains('active')) {
+                        _renderFacturasFromMemory();
+                    }
+                    try { updateDashboardPremium(); } catch(e) {}
+                })
+                .catch(() => {});
+        }
 
         // ===== ESTADO GLOBAL CENTRALIZADO =====
         // Fuente de verdad única: una sola consulta a Airtable alimenta TODAS las pestañas
@@ -3948,6 +3955,7 @@
         // ===== CACHÉ LOCAL DE DATOS =====
         const DATA_CACHE_KEY = 'dulce_jaleo_data_v2';
         const DATA_CACHE_TTL = 10 * 60 * 1000; // 10 min
+        let _fetchInFlight = null; // singleton: evita llamadas duplicadas simultáneas
 
         function saveDataCache() {
             try {
@@ -3972,15 +3980,19 @@
         }
 
         async function fetchGlobalData() {
-            const now = new Date();
-            globalStats.mesActual = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+            // Si ya hay una petición en vuelo, reusar la misma promesa (no duplicar llamadas)
+            if (_fetchInFlight) return _fetchInFlight;
 
-            try {
-                // Obtener las 3 tablas vía backend seguro (sin tokens en el navegador)
-                const data = await DulceAPI.fetchAllRecords();
-                // data = { facturas: [], albaranes: [], gastos: [] }
+            const _doFetch = async () => {
+                const now = new Date();
+                globalStats.mesActual = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
 
-                // Normalizar TODOS los registros
+                // Timeout de 12s: si el backend no responde, lanzar error en lugar de colgar
+                const timeoutErr = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('timeout')), 12000)
+                );
+                const data = await Promise.race([DulceAPI.fetchAllRecords(), timeoutErr]);
+
                 globalStats.allRecords = [];
                 if (data.facturas) globalStats.allRecords.push(...data.facturas.map(r => normalizeRecord(r, 'FACTURA')));
                 if (data.albaranes) globalStats.allRecords.push(...data.albaranes.map(r => normalizeRecord(r, 'ALBARAN')));
@@ -3990,11 +4002,10 @@
                 calculateGlobalStats();
                 globalStats.loaded = true;
                 saveDataCache();
-                return true;
-            } catch (err) {
-                console.error('Error fetching data:', err);
-                return false;
-            }
+            };
+
+            _fetchInFlight = _doFetch().finally(() => { _fetchInFlight = null; });
+            return _fetchInFlight;
         }
 
         function calculateGlobalStats() {
@@ -4410,45 +4421,65 @@
             allFacturas = globalStats.allRecords;
             updateStats();
             renderFacturas();
-            setTimeout(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); }, 100);
+            // rAF: fuerza al navegador a repintar antes de inicializar iconos
+            requestAnimationFrame(() => {
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            });
             hideError();
         }
 
-        async function loadFacturas() {
-            // CAPA 1: datos ya en memoria → render instantáneo, sin red
-            if (globalStats.loaded && globalStats.allRecords.length > 0) {
-                _renderFacturasFromMemory();
-                return;
-            }
-
-            // CAPA 2: caché localStorage → render instantáneo + refresco en background
-            if (loadDataCache()) {
-                _renderFacturasFromMemory();
-                // Actualiza en background sin bloquear UI
-                fetchGlobalData().then(() => _renderFacturasFromMemory()).catch(() => {});
-                return;
-            }
-
-            // CAPA 3: sin caché → spinner + carga de red
+        function _showFacturasSpinner() {
             const list = document.getElementById('facturasList');
-            list.innerHTML = `<div class="empty-state">
+            if (list) list.innerHTML = `<div class="empty-state">
                 <div style="display:flex;justify-content:center;margin-bottom:12px;">
                     <div class="spinner-track"></div>
                 </div>
                 <div class="empty-title">Cargando documentos...</div>
             </div>`;
+        }
+
+        function _showFacturasError(msg) {
+            const list = document.getElementById('facturasList');
+            if (list) list.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">⚠️</div>
+                    <div class="empty-title">Sin conexión</div>
+                    <div class="empty-desc">${msg}</div>
+                    <button onclick="loadFacturas()" style="margin-top:16px;padding:10px 28px;border-radius:50px;background:var(--amber);color:#fff;border:none;font-weight:700;cursor:pointer;font-size:14px;">
+                        Reintentar
+                    </button>
+                </div>`;
+        }
+
+        async function loadFacturas() {
+            // CAPA 1: datos ya en memoria → render SÍNCRONO, sin red ni espera
+            if (globalStats.loaded && globalStats.allRecords.length > 0) {
+                _renderFacturasFromMemory();
+                return;
+            }
+
+            // CAPA 2: caché localStorage → render SÍNCRONO + refresco silencioso en background
+            if (loadDataCache()) {
+                _renderFacturasFromMemory();
+                fetchGlobalData()
+                    .then(() => _renderFacturasFromMemory())
+                    .catch(() => {}); // refresco silencioso, no bloquea
+                return;
+            }
+
+            // CAPA 3: primera vez sin caché → spinner + llamada a red con timeout
+            _showFacturasSpinner();
 
             try {
-                await fetchGlobalData();
+                await fetchGlobalData(); // lanza Error si falla o supera 12s
                 _renderFacturasFromMemory();
             } catch (err) {
-                showError('No se pudieron cargar los datos: ' + err.message);
-                list.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-icon">⚠️</div>
-                        <div class="empty-title">Error de conexión</div>
-                        <div class="empty-desc">Verifica la conexión con el servidor</div>
-                    </div>`;
+                const esTimetout = err.message === 'timeout';
+                _showFacturasError(
+                    esTimetout
+                        ? 'El servidor tardó demasiado. Comprueba tu conexión.'
+                        : (err.message || 'Error al conectar con el servidor.')
+                );
             }
         }
 
