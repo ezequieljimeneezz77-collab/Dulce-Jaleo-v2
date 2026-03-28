@@ -1019,6 +1019,46 @@
             max-width: 100%;
         }
 
+        .sort-bar {
+            display: flex;
+            gap: 8px;
+            padding: 0 var(--gutter) 16px;
+            flex-wrap: wrap;
+        }
+
+        .sort-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 6px 14px;
+            border-radius: 50px;
+            font-size: 12px;
+            font-weight: 600;
+            background: var(--white);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s, border-color 0.2s;
+        }
+
+        .sort-chip.active {
+            background: var(--amber);
+            border-color: var(--amber);
+            color: #fff;
+        }
+
+        body.dark-theme .sort-chip {
+            background: var(--glass-bg);
+            border-color: rgba(255,255,255,0.1);
+            color: var(--text-muted);
+        }
+
+        body.dark-theme .sort-chip.active {
+            background: var(--amber);
+            border-color: var(--amber);
+            color: #fff;
+        }
+
         .factura-meta {
             display: flex;
             gap: 10px;
@@ -3194,6 +3234,17 @@
                 <button class="refresh-btn" id="refreshBtn">🔄 Actualizar</button>
             </div>
 
+            <div class="sort-bar" id="sortBar">
+                <button class="sort-chip active" data-sort="recent">
+                    <i data-lucide="clock" style="width:12px;height:12px;"></i> Recientes
+                </button>
+                <button class="sort-chip" data-sort="expensive">
+                    <i data-lucide="trending-up" style="width:12px;height:12px;"></i> Mayor precio
+                </button>
+                <button class="sort-chip" data-sort="cheap">
+                    <i data-lucide="trending-down" style="width:12px;height:12px;"></i> Menor precio
+                </button>
+            </div>
 
             <div class="total-periodo-banner glass-panel"
                 style="margin: 0 var(--gutter) 24px; padding: 24px; display: flex; justify-content: space-between; align-items: center; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2);">
@@ -4291,6 +4342,7 @@
         // ===== FACTURAS (usa estado global) =====
         let allFacturas = [];
         let currentFilter = 'all';
+        let currentSort = 'recent';
 
         document.getElementById('refreshBtn').addEventListener('click', loadFacturas);
 
@@ -4299,6 +4351,15 @@
             document.querySelectorAll('.sub-tab-btn').forEach(c => c.classList.remove('active'));
             e.target.classList.add('active');
             currentFilter = e.target.dataset.filter;
+            renderFacturas();
+        });
+
+        document.getElementById('sortBar').addEventListener('click', e => {
+            const chip = e.target.closest('.sort-chip');
+            if (!chip) return;
+            document.querySelectorAll('.sort-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            currentSort = chip.dataset.sort;
             renderFacturas();
         });
 
@@ -4422,7 +4483,20 @@
 
         function renderFacturas() {
             const list = document.getElementById('facturasList');
-            const filtered = currentFilter === 'all' ? allFacturas : allFacturas.filter(f => f.categoria === currentFilter);
+            let filtered = currentFilter === 'all' ? [...allFacturas] : allFacturas.filter(f => f.categoria === currentFilter);
+
+            // Ordenado
+            if (currentSort === 'recent') {
+                filtered.sort((a, b) => {
+                    const da = a.fecha || a.createdAt || '';
+                    const db = b.fecha || b.createdAt || '';
+                    return db.localeCompare(da);
+                });
+            } else if (currentSort === 'expensive') {
+                filtered.sort((a, b) => (b.total || 0) - (a.total || 0));
+            } else if (currentSort === 'cheap') {
+                filtered.sort((a, b) => (a.total || 0) - (b.total || 0));
+            }
 
             if (filtered.length === 0) {
                 const labels = {
@@ -4449,10 +4523,10 @@
                 const badgeText = f.categoria === 'GASTOS_VARIOS' ? 'GASTOS' : f.categoria;
                 const total = typeof f.total === 'number' ? f.total.toFixed(2) : (f.total || '0');
 
-                const proveedorLabel = f.proveedor === 'Desconocido' ? 'Sin identificar' : f.proveedor;
-                const descLine = f.proveedor === 'Desconocido' && f.detalles
-                    ? `<div class="factura-desc">${f.detalles.slice(0, 60)}${f.detalles.length > 60 ? '…' : ''}</div>`
-                    : '';
+                const isUnknown = f.proveedor === 'Desconocido';
+                const proveedorLabel = isUnknown
+                    ? (f.detalles ? f.detalles.slice(0, 45) + (f.detalles.length > 45 ? '…' : '') : 'Sin identificar')
+                    : f.proveedor;
 
                 return `
                     <div class="factura-card">
@@ -4460,7 +4534,6 @@
                             <div class="factura-info">
                                 <div class="factura-proveedor">${proveedorLabel}</div>
                                 <span class="factura-badge ${badgeClass}">${badgeText}</span>
-                                ${descLine}
                             </div>
                             <div class="factura-total">${total}€</div>
                         </div>
