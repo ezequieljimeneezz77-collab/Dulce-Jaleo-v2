@@ -3917,20 +3917,6 @@
         let config = loadConfig();
         document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
 
-        // Pre-fetch inmediato al arrancar (sin bloquear el hilo principal)
-        // Cuando termine, si el usuario ya está en Facturas → renderiza sin espera
-        if (!globalStats.loaded) {
-            fetchGlobalData()
-                .then(() => {
-                    const facturasTab = document.getElementById('tab-facturas');
-                    if (facturasTab && facturasTab.classList.contains('active')) {
-                        _renderFacturasFromMemory();
-                    }
-                    try { updateDashboardPremium(); } catch(e) {}
-                })
-                .catch(() => {});
-        }
-
         // ===== ESTADO GLOBAL CENTRALIZADO =====
         // Fuente de verdad única: una sola consulta a Airtable alimenta TODAS las pestañas
         let globalStats = {
@@ -5861,6 +5847,19 @@
                 activateTab('inicio');
             } catch(e) {
                 console.error('Error durante la activación inicial de pestañas:', e);
+            }
+
+            // 6. Pre-fetch de datos en background — cuando termina, pinta Facturas si está activa
+            if (!globalStats.loaded) {
+                fetchGlobalData()
+                    .then(() => {
+                        const facturasTab = document.getElementById('tab-facturas');
+                        if (facturasTab && facturasTab.classList.contains('active')) {
+                            _renderFacturasFromMemory();
+                        }
+                        try { updateDashboardPremium(); } catch(e) {}
+                    })
+                    .catch(() => {});
             }
         });
     </script>
