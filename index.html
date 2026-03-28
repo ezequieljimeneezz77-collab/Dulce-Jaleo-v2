@@ -1008,6 +1008,17 @@
             margin-left: 10px;
         }
 
+        .factura-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+            margin-bottom: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+
         .factura-meta {
             display: flex;
             gap: 10px;
@@ -4252,13 +4263,19 @@
             document.getElementById('resultCategoria').textContent = 'Categoría: ' + rawCategoria;
 
             const grid = document.getElementById('resultGrid');
+            const cif = fields['CIF'] || fields['cif'] || '';
+            const detalles = fields['DETALLES DOC'] || fields['detalles'] || '';
+            const proveedor = fields['PROVEDOR/ TITULO'] || fields['proveedor'] || '';
+
             const items = [
-                { label: 'Proveedor', value: fields['PROVEDOR/ TITULO'] || fields['proveedor'] || '-' },
+                { label: 'Establecimiento', value: proveedor || (detalles ? detalles.slice(0, 50) : '-') },
                 { label: 'Total', value: (fields['TOTAL'] || fields['total'] || '0') + ' €', cls: 'amount' },
                 { label: 'Fecha', value: fields['Fecha'] || fields['fecha'] || '-' },
                 { label: 'Nº Doc', value: fields['NUMERO DE DOC'] || fields['numero_doc'] || '-' },
                 { label: 'Base Imponible', value: (fields['BASE IMPONIBLE'] || fields['base_imponible'] || '0') + ' €' },
-                { label: 'IVA', value: (fields['IVA'] || fields['iva'] || '0') + ' €' }
+                { label: 'IVA', value: (fields['IVA'] || fields['iva'] || '0') + ' €' },
+                ...(cif ? [{ label: 'CIF / NIF', value: cif }] : []),
+                ...(detalles && proveedor ? [{ label: 'Concepto', value: detalles }] : [])
             ];
 
             grid.innerHTML = items.map(i => `
@@ -4432,12 +4449,18 @@
                 const badgeText = f.categoria === 'GASTOS_VARIOS' ? 'GASTOS' : f.categoria;
                 const total = typeof f.total === 'number' ? f.total.toFixed(2) : (f.total || '0');
 
+                const proveedorLabel = f.proveedor === 'Desconocido' ? 'Sin identificar' : f.proveedor;
+                const descLine = f.proveedor === 'Desconocido' && f.detalles
+                    ? `<div class="factura-desc">${f.detalles.slice(0, 60)}${f.detalles.length > 60 ? '…' : ''}</div>`
+                    : '';
+
                 return `
                     <div class="factura-card">
                         <div class="factura-top">
                             <div class="factura-info">
-                                <div class="factura-proveedor">${f.proveedor}</div>
+                                <div class="factura-proveedor">${proveedorLabel}</div>
                                 <span class="factura-badge ${badgeClass}">${badgeText}</span>
+                                ${descLine}
                             </div>
                             <div class="factura-total">${total}€</div>
                         </div>
@@ -4464,7 +4487,7 @@
         window.openFacturaModal = function (f) {
             document.getElementById('fmTitle').textContent = f.categoria === 'FACTURA' ? 'Factura' : f.categoria === 'ALBARAN' ? 'Albarán' : 'Gasto Vario';
             document.getElementById('fmTotal').textContent = (typeof f.total === 'number' ? f.total.toFixed(2) : (f.total || '0')) + ' €';
-            document.getElementById('fmProveedor').textContent = f.proveedor || '-';
+            document.getElementById('fmProveedor').textContent = (f.proveedor === 'Desconocido' ? 'Sin identificar' : f.proveedor) || '-';
             document.getElementById('fmFecha').textContent = f.fecha || '-';
             document.getElementById('fmDoc').textContent = f.numero_doc || '-';
             document.getElementById('fmCif').textContent = f.cif || '-';
