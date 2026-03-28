@@ -4409,11 +4409,19 @@
                 catLimpia = 'FACTURA';
             }
 
+            // Fecha: prueba todas las variantes de nombre de campo que usa Airtable/n8n
+            const rawFecha = f.Fecha || f.fecha || f.FECHA
+                || f['Fecha factura'] || f['FECHA FACTURA'] || f['fecha_factura']
+                || f.date || f.Date || '';
+            const rawCreated = (item.createdTime || '').slice(0, 10);
+            const fechaFinal = rawFecha || rawCreated;
+
             return {
                 proveedor: f['PROVEDOR/ TITULO'] || f.proveedor || 'Desconocido',
                 cif: cif,
-                fecha: f.Fecha || f.fecha || '',
-                createdAt: (item.createdTime || '').slice(0, 10),  // YYYY-MM-DD de Airtable
+                fecha: fechaFinal,
+                fechaEsCreacion: !rawFecha && !!rawCreated, // true si la fecha es de subida, no de factura
+                createdAt: rawCreated,
                 numero_doc: f['NUMERO DE DOC'] || f.numero_doc || '',
                 base_imponible: parseFloat(f['BASE IMPONIBLE'] || f.base_imponible || 0),
                 iva: iva,
@@ -4481,6 +4489,14 @@
             updateDashboardPremium();
         }
 
+        function formatFecha(isoStr) {
+            if (!isoStr) return 'Sin fecha';
+            // Acepta YYYY-MM-DD o DD/MM/YYYY o variantes
+            const m = isoStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+            return isoStr; // si ya viene en otro formato, devolver tal cual
+        }
+
         function renderFacturas() {
             const list = document.getElementById('facturasList');
             let filtered = currentFilter === 'all' ? [...allFacturas] : allFacturas.filter(f => f.categoria === currentFilter);
@@ -4524,9 +4540,14 @@
                 const total = typeof f.total === 'number' ? f.total.toFixed(2) : (f.total || '0');
 
                 const isUnknown = f.proveedor === 'Desconocido';
-                const proveedorLabel = isUnknown
-                    ? (f.detalles ? f.detalles.slice(0, 45) + (f.detalles.length > 45 ? '…' : '') : 'Sin identificar')
-                    : f.proveedor;
+                const proveedorLabel = isUnknown ? 'Sin identificar' : f.proveedor;
+                const detallesSubtitle = isUnknown && f.detalles
+                    ? `<div class="factura-desc">${f.detalles.slice(0, 55)}${f.detalles.length > 55 ? '…' : ''}</div>`
+                    : '';
+                const fechaLabel = formatFecha(f.fecha);
+                const fechaIcon = f.fechaEsCreacion
+                    ? `<i data-lucide="upload" style="width:12px;height:12px;" title="Fecha de subida"></i>`
+                    : `<i data-lucide="calendar" style="width:12px;height:12px;"></i>`;
 
                 return `
                     <div class="factura-card">
@@ -4534,11 +4555,12 @@
                             <div class="factura-info">
                                 <div class="factura-proveedor">${proveedorLabel}</div>
                                 <span class="factura-badge ${badgeClass}">${badgeText}</span>
+                                ${detallesSubtitle}
                             </div>
                             <div class="factura-total">${total}€</div>
                         </div>
                         <div class="factura-meta">
-                            <span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="calendar" style="width: 12px; height: 12px;"></i> ${f.fecha || 'Sin fecha'}</span>
+                            <span style="display:flex;align-items:center;gap:4px;${f.fechaEsCreacion ? 'opacity:0.6;font-style:italic;' : ''}">${fechaIcon} ${fechaLabel}</span>
                             <span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="file-text" style="width: 12px; height: 12px;"></i> ${f.numero_doc || 'S/N'}</span>
                             ${f.cif ? `<span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="building" style="width: 12px; height: 12px;"></i> ${f.cif}</span>` : ''}
                         </div>
@@ -4561,7 +4583,7 @@
             document.getElementById('fmTitle').textContent = f.categoria === 'FACTURA' ? 'Factura' : f.categoria === 'ALBARAN' ? 'Albarán' : 'Gasto Vario';
             document.getElementById('fmTotal').textContent = (typeof f.total === 'number' ? f.total.toFixed(2) : (f.total || '0')) + ' €';
             document.getElementById('fmProveedor').textContent = (f.proveedor === 'Desconocido' ? 'Sin identificar' : f.proveedor) || '-';
-            document.getElementById('fmFecha').textContent = f.fecha || '-';
+            document.getElementById('fmFecha').textContent = formatFecha(f.fecha) + (f.fechaEsCreacion ? ' (subida)' : '');
             document.getElementById('fmDoc').textContent = f.numero_doc || '-';
             document.getElementById('fmCif').textContent = f.cif || '-';
             document.getElementById('fmBase').textContent = (f.base_imponible || '0') + ' €';
