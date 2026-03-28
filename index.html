@@ -1060,11 +1060,20 @@
         }
 
         .factura-meta {
-            display: flex;
-            gap: 10px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px 12px;
             font-size: 11px;
             color: var(--text-muted);
-            flex-wrap: wrap;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        @media (min-width: 400px) {
+            .factura-meta {
+                grid-template-columns: repeat(4, 1fr);
+            }
         }
 
         .factura-meta span {
@@ -3908,6 +3917,13 @@
         let config = loadConfig();
         document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
 
+        // Pre-fetch de datos al arrancar: cuando el usuario llegue a Facturas, ya estarán listos
+        setTimeout(() => {
+            if (!globalStats.loaded) {
+                fetchGlobalData().catch(() => {});
+            }
+        }, 800);
+
         // ===== ESTADO GLOBAL CENTRALIZADO =====
         // Fuente de verdad única: una sola consulta a Airtable alimenta TODAS las pestañas
         let globalStats = {
@@ -3929,6 +3945,32 @@
             loaded: false
         };
 
+        // ===== CACHÉ LOCAL DE DATOS =====
+        const DATA_CACHE_KEY = 'dulce_jaleo_data_v2';
+        const DATA_CACHE_TTL = 10 * 60 * 1000; // 10 min
+
+        function saveDataCache() {
+            try {
+                localStorage.setItem(DATA_CACHE_KEY, JSON.stringify({
+                    records: globalStats.allRecords,
+                    ts: Date.now()
+                }));
+            } catch(e) {}
+        }
+
+        function loadDataCache() {
+            try {
+                const raw = localStorage.getItem(DATA_CACHE_KEY);
+                if (!raw) return false;
+                const { records, ts } = JSON.parse(raw);
+                if (Date.now() - ts > DATA_CACHE_TTL) return false;
+                globalStats.allRecords = records;
+                globalStats.loaded = true;
+                calculateGlobalStats();
+                return true;
+            } catch(e) { return false; }
+        }
+
         async function fetchGlobalData() {
             const now = new Date();
             globalStats.mesActual = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
@@ -3947,6 +3989,7 @@
                 globalStats.allRecords.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
                 calculateGlobalStats();
                 globalStats.loaded = true;
+                saveDataCache();
                 return true;
             } catch (err) {
                 console.error('Error fetching data:', err);
@@ -4363,7 +4406,30 @@
             renderFacturas();
         });
 
+        function _renderFacturasFromMemory() {
+            allFacturas = globalStats.allRecords;
+            updateStats();
+            renderFacturas();
+            setTimeout(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); }, 100);
+            hideError();
+        }
+
         async function loadFacturas() {
+            // CAPA 1: datos ya en memoria → render instantáneo, sin red
+            if (globalStats.loaded && globalStats.allRecords.length > 0) {
+                _renderFacturasFromMemory();
+                return;
+            }
+
+            // CAPA 2: caché localStorage → render instantáneo + refresco en background
+            if (loadDataCache()) {
+                _renderFacturasFromMemory();
+                // Actualiza en background sin bloquear UI
+                fetchGlobalData().then(() => _renderFacturasFromMemory()).catch(() => {});
+                return;
+            }
+
+            // CAPA 3: sin caché → spinner + carga de red
             const list = document.getElementById('facturasList');
             list.innerHTML = `<div class="empty-state">
                 <div style="display:flex;justify-content:center;margin-bottom:12px;">
@@ -4373,14 +4439,8 @@
             </div>`;
 
             try {
-                // Usar estado global centralizado (una sola consulta)
                 await fetchGlobalData();
-                allFacturas = globalStats.allRecords;
-
-                updateStats();
-                renderFacturas();
-                setTimeout(() => { if (typeof lucide !== 'undefined') lucide.createIcons(); }, 100);
-                hideError();
+                _renderFacturasFromMemory();
             } catch (err) {
                 showError('No se pudieron cargar los datos: ' + err.message);
                 list.innerHTML = `
@@ -4539,15 +4599,12 @@
                 const badgeText = f.categoria === 'GASTOS_VARIOS' ? 'GASTOS' : f.categoria;
                 const total = typeof f.total === 'number' ? f.total.toFixed(2) : (f.total || '0');
 
-                const isUnknown = f.proveedor === 'Desconocido';
-                const proveedorLabel = isUnknown
-                    ? (f.detalles ? f.detalles.slice(0, 42) + (f.detalles.length > 42 ? '…' : '') : 'Sin identificar')
-                    : f.proveedor;
-                const detallesSubtitle = '';
+                const proveedorLabel = f.proveedor && f.proveedor !== 'Desconocido' ? f.proveedor : 'Sin identificar / Escaneando...';
                 const fechaLabel = formatFecha(f.fecha);
                 const fechaIcon = f.fechaEsCreacion
                     ? `<i data-lucide="upload" style="width:12px;height:12px;" title="Fecha de subida"></i>`
                     : `<i data-lucide="calendar" style="width:12px;height:12px;"></i>`;
+                const baseLabel = (f.base_imponible || 0).toFixed(2) + '€';
 
                 return `
                     <div class="factura-card">
@@ -4562,7 +4619,8 @@
                         <div class="factura-meta">
                             <span style="display:flex;align-items:center;gap:4px;${f.fechaEsCreacion ? 'opacity:0.6;font-style:italic;' : ''}">${fechaIcon} ${fechaLabel}</span>
                             <span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="file-text" style="width: 12px; height: 12px;"></i> ${f.numero_doc || 'S/N'}</span>
-                            ${f.cif ? `<span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="building" style="width: 12px; height: 12px;"></i> ${f.cif}</span>` : ''}
+                            <span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="building" style="width: 12px; height: 12px;"></i> ${f.cif || '---'}</span>
+                            <span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="layers" style="width: 12px; height: 12px;"></i> B: ${baseLabel}</span>
                         </div>
                         <div class="factura-actions">
                             <button class="factura-btn-view" onclick='openFacturaModal(${JSON.stringify(f).replace(/'/g, "&#39;")})' style="display: flex; align-items: center; gap: 6px;">
@@ -4962,19 +5020,26 @@
                 return;
             }
             list.innerHTML = filtered.map(f => {
-                const badgeClass = f.categoria === 'FACTURA' ? 'badge-factura' : 'badge-albaran';
+                const badgeClass = f.categoria === 'FACTURA' ? 'badge-factura' :
+                    f.categoria === 'ALBARAN' ? 'badge-albaran' : 'badge-gastos';
+                const total = (f.total || 0).toFixed(2);
+                const proveedorLabel = f.proveedor && f.proveedor !== 'Desconocido' ? f.proveedor : 'Sin identificar';
+                const baseLabel = (f.base_imponible || 0).toFixed(2) + '€';
+
                 return `
                     <div class="factura-card">
                         <div class="factura-top">
                             <div class="factura-info">
-                                <div class="factura-proveedor">${f.proveedor}</div>
+                                <div class="factura-proveedor">${proveedorLabel}</div>
                                 <span class="factura-badge ${badgeClass}">${f.categoria}</span>
                             </div>
-                            <div class="factura-total">${(f.total || 0).toFixed(2)}€</div>
+                            <div class="factura-total">${total}€</div>
                         </div>
                         <div class="factura-meta">
                             <span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="calendar" style="width: 12px; height: 12px;"></i> ${f.fecha || 'S/F'}</span>
                             <span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="file-text" style="width: 12px; height: 12px;"></i> ${f.numero_doc || 'S/N'}</span>
+                            <span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="building" style="width: 12px; height: 12px;"></i> ${f.cif || '---'}</span>
+                            <span style="display: flex; align-items: center; gap: 4px;"><i data-lucide="layers" style="width: 12px; height: 12px;"></i> B: ${baseLabel}</span>
                         </div>
                         <div class="factura-actions">
                             <button class="factura-btn-view" onclick='openFacturaModal(${JSON.stringify(f).replace(/'/g, "&#39;")})' style="display: flex; align-items: center; gap: 6px;">
